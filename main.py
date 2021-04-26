@@ -1,6 +1,6 @@
 import random
 import pygame as pg
-import math
+import math	
 import numpy as np
 
 pg.init()
@@ -21,30 +21,28 @@ red = (255, 0, 0)
 blue = (0, 255, 255)
 green = (0, 255, 0)
 
+color = {
+	0: white,
+}
+
 class Boundary:
-	def __init__(self, positions, color, size=1):
+	def __init__(self, position, color, size=1):
 		self.color = color
 		self.size = size * SF
-		self.positions = []
-
-		for line in positions:
-			pos1, pos2 = line
-			x1, y1 = pos1
-			x2, y2 = pos2
-			x1 *= SF
-			y1 *= SF
-			x2 *= SF
-			y2 *= SF
-			if x1 < x2:
-				self.positions.append(((x1, y1), (x2, y2)))
-			if x1 > x2:
-				self.positions.append(((x2, y2), (x1, y1)))
-
-		# allBounds.append(self)
+		
+		x1, y1 = position[0]
+		x2, y2 = position[1]
+		x1 *= SF
+		y1 *= SF
+		x2 *= SF
+		y2 *= SF
+		if x1 < x2:
+			self.position = ((x1, y1), (x2, y2))
+		if x1 > x2:
+			self.position = ((x2, y2), (x1, y1))
 
 	def Draw(self):
-		for line in self.positions:
-			pg.draw.aaline(screen, self.color, line[0], line[1], 1)
+		pg.draw.aaline(screen, self.color, self.position[0], self.position[1], 1)
 
 
 class Point:
@@ -67,7 +65,7 @@ class Point:
 		pg.draw.circle(screen, self.color, self.position, self.size)
 
 		for ray in self.rays:
-			ray.Update(self.position)
+			ray.Update(self.position, self)
 
 	def CreateRays(self):
 		directions = []
@@ -100,36 +98,35 @@ class Ray:
 		self.draw = False
 		self.drawColor = color
 
-	def Update(self, position):
+	def Update(self, position, point):
 		self.Cast(position)
-		self.Collide()
+		self.Collide(point)
 		self.Draw()
 
 	def Cast(self, startPos):
 		self.startPos = startPos
 		self.endPos = (self.startPos[0] + self.direction[0], self.startPos[1] + self.direction[1])
 
-	def Collide(self):
+	def Collide(self, point):
 		self.draw = False
 		for bound in allBounds:
 			x1, y1 = self.startPos
 			x2, y2 = self.endPos
-			for line in bound.positions:
-				x3, y3 = line[0]
-				x4, y4 = line[1]
+			x3, y3 = bound.position[0]
+			x4, y4 = bound.position[1]
 
-				den = ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4))
+			den = ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4))
 
-				if den != 0:
-					t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den
+			if den != 0:
+				t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den
 
-					if 0 <= t <= 1:
-						L1 = ((x1 + t * (x2 - x1)), (y1 + t * (y2 - y1)))
-						if (L1 > (x3, y3)):
-							if (L1 < (x4, y4)):
-								self.endPos = L1
-								self.draw = True
-								self.drawColor = bound.color
+				if 0 <= t <= 1:
+					L1 = ((x1 + t * (x2 - x1)), (y1 + t * (y2 - y1)))
+					if (L1 > (x3, y3)):
+						if (L1 < (x4, y4)):
+							self.endPos = L1
+							self.draw = True
+							self.drawColor = bound.color
 
 	def Draw(self):
 		# pg.draw.aaline(screen, self.color, self.startPos, self.endPos)
@@ -169,13 +166,15 @@ def MovePoint(event, point):
 def MakeBoundaries():
 	global allBounds
 	bounds = []
-	numOfBoundries = 15
+	numOfBoundries = 20
+
 	for i in range(numOfBoundries):
 		x1 = random.randint(0, width // SF)
 		y1 = random.randint(0, width // SF)
 		x2 = random.randint(0, height // SF)
 		y2 = random.randint(0, height // SF) 
-		bounds.append(Boundary([((x1, y1), (x2, y2))], white))
+		col = random.randint(0, len(color) - 1)
+		bounds.append(Boundary(((x1, y1), (x2, y2)), color[col]))
 
 	allBounds = np.array(bounds)
 
