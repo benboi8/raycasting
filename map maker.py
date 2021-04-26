@@ -273,7 +273,8 @@ class InputBox:
 		self.activeColor = activeColor
 		self.currentColor = self.inactiveColor
 		self.displayText = displayText	
-		self.text = text
+		self.startText = text
+		self.text = self.startText
 		self.characterLimit = characterLimit
 		self.displayTextSurface = Font.render(self.displayText, True, self.currentColor)
 		self.textSurface = Font.render(self.text, True, self.currentColor)
@@ -283,6 +284,7 @@ class InputBox:
 			listToAppend.append(self)
 
 	def Draw(self):
+		self.textSurface = Font.render(self.text, True, self.currentColor)
 		self.surface.blit(self.displayTextSurface, (self.rect.x+2.5 * SF, self.rect.y+2.5 * SF))
 		self.surface.blit(self.textSurface, (self.rect.x+self.displayTextSurface.get_width()+5 * SF, self.rect.y+2.5 * SF))
 		pg.draw.rect(self.surface, self.currentColor, self.rect, 2)
@@ -312,7 +314,7 @@ class InputBox:
 					self.FilterText(event.unicode)
 				# make empty text = 0
 				if self.text == "":
-					self.text = "0"
+					self.text = self.startText
 				# Re-render the text.
 				self.textSurface = Font.render(self.text, True, self.currentColor)
 
@@ -426,6 +428,8 @@ def Save(saveData):
 		json.dump(saveData, fp=saveFile, indent=2)
 		saveFile.close()
 
+	os.chdir(rootDirectory)
+
 
 def GetSaveData():
 	saveData = {
@@ -448,17 +452,34 @@ def Load():
 		"colors": []
 	}
 
-
+	print("load")
 
 	return saveData
 
 
 def CheckLoad():
 	global loadNumber
+	loadCheck = False
 	if loadNumber.text != "":
-		print(loadNumber.text)
+		filesInDirectory = [file for file in listdir(rootDirectory)]
+		saveFolderExists = False
 
-	return False
+		for file in filesInDirectory:
+			if saveFolderName in file:
+				saveFolderExists = True
+
+		# change current working directory to Maps
+		if saveFolderExists:
+			os.chdir(saveFolderName)
+
+		currentWorkingDirectory = os.getcwd()
+		directory = [file for file in listdir(currentWorkingDirectory)]
+
+		for file in directory:
+			if loadNumber.text in file:
+				loadCheck = True
+
+	return loadCheck
 
 
 def ButtonPress(event):
@@ -473,9 +494,11 @@ def ButtonPress(event):
 				for obj in loadObjs:
 					if obj in allInputBoxs:
 						allInputBoxs.remove(obj)
+					if obj in allButtons:
+						allButtons.remove(obj)
 				loadObjs = []
 
-			if button.active == "load save":
+			if button.action == "load save":
 				loadCheck = CheckLoad()
 				if loadCheck:
 					loadScreen = False
@@ -483,7 +506,8 @@ def ButtonPress(event):
 					for obj in loadObjs:
 						if obj in allInputBoxs:
 							allInputBoxs.remove(obj)
-
+						if obj in allButtons:
+							allButtons.remove(obj)
 					loadObjs = []
 					Load()
 
