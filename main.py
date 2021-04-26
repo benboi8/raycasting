@@ -22,7 +22,7 @@ blue = (0, 255, 255)
 green = (0, 255, 0)
 
 color = {
-	0: white,
+	0: white, 
 }
 
 class Boundary:
