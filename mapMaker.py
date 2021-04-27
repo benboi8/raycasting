@@ -3,14 +3,16 @@ import pygame as pg
 from pygame import gfxdraw
 import math	
 import numpy as np
+from PIL import Image
 import os
+import sys
 from os import listdir
 from os.path import isfile, join
 import json
 
 pg.init()
 
-FPS = 20
+FPS = 60
 clock = pg.time.Clock()
 
 SF = 2
@@ -25,26 +27,31 @@ red = (255, 0, 0)
 blue = (0, 255, 255)
 green = (0, 255, 0)
 
-Font = pg.font.SysFont("arial", 8 * SF)
-
 allBounds = np.array([])
 allButtons = []
+allBuildMenuObj = []
 allInputBoxs = []
 allLabels = []
 loadObjs = []
+saveObjs = []
+
+firstPoint, lastPoint = (-1, -1), (-1, -1)
+
+Font = pg.font.SysFont("arial", 8 * SF)
 
 rootDirectory = os.getcwd()
 saveFolderName = "Maps"
+savesDirectoryCreated = False
 namePrefix = "Map-"
 
 loadScreen = True
+saveScreen = False
+running = True
 
-color = {
-	0: white, 
-}
+destroyMode = False
+destroyPointStart, destroyPointEnd = (-1, -1), (-1, -1)
 
 allowedKeys = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", " "]
-
 
 def ScaleImage(imagePath, imageScale, newImagePath):
 	image = Image.open(imagePath)
@@ -74,103 +81,96 @@ class Boundary:
 		y1 *= SF
 		x2 *= SF
 		y2 *= SF
-		if x1 < x2:
+		if x1 < x2: 
 			self.position = ((x1, y1), (x2, y2))
-		if x1 >= x2:
+		elif x1 > x2:
 			self.position = ((x2, y2), (x1, y1))
+		else:
+			self.position = ((x1, y1), (x2, y2))
 
 	def Draw(self):
 		pg.draw.aaline(screen, self.color, self.position[0], self.position[1], 1)
 
 
-class Point:
-	def __init__(self, position, color, rayLength=100, size=1, numOfRays=360, speed=1, mouseMovement=False):
-		self.position = (position[0] * SF, position[1] * SF)
-		self.color = color
-		self.size = size * SF
-		self.numOfRays = numOfRays
-		self.rayLength = rayLength * 2
-		self.rays = []
-		self.speed = speed
-		self.newPosition = self.position
-		self.direction = [0, 0]
-		self.velocity = 0
-		self.mouseMovement = mouseMovement
+class ToggleButton:
+	def __init__(self, surface, rect, buttonType, colorData, textData, actionData=[], lists=[allButtons], extraText=[], imageData=[None]):
+		"""
+		Parameters: 
+			buttonType: button action
+			colorData: tuple of active color and inactive color
+			textData: tuple of text and text color
+			actionData: list of any additional button action data
+			lists: list of lists to add self too
+			extraText: list of tuples containing the text and the rect
+			imageData: list of image path and scaled image path
+		"""
+		self.surface = surface
+		self.originalRect = rect
+		self.action = buttonType
+		self.activeColor = colorData[0]
+		self.inactiveColor = colorData[1]
+		self.currentColor = self.inactiveColor
+		self.text = textData[0]
+		self.textColor = textData[1]
+		self.active = False
+		self.textSurface = Font.render(self.text, True, self.textColor) 
+		self.actionData = actionData
+		self.extraTextSurfaces = []
+		self.extraText = extraText
 
-		self.CreateRays()
+		for listToAppend in lists:
+			listToAppend.append(self)
 
-	def Draw(self):
-		pg.draw.circle(screen, self.color, self.position, self.size)
-
-		for ray in self.rays:
-			ray.Update(self.position, self)
-
-	def CreateRays(self):
-		directions = []
-
-		for x in range(-self.numOfRays, self.numOfRays):
-			for y in range(-self.numOfRays, self.numOfRays):
-				directions.append((x * self.rayLength, y * self.rayLength))
-
-		for i in range(len(directions)):
-			self.rays.append(Ray(self.position, self.color, self, directions[i]))
-
-	def Move(self):
-		if self.mouseMovement:
-			self.position = pg.mouse.get_pos()
+		self.imageData = imageData
+		if self.imageData[0] != None:
+			self.hasImage = True
 		else:
-			x, y = self.position
+			self.hasImage = False
 
-			x += self.speed * self.direction[0]
-			y += self.speed * self.direction[1]
+		self.Rescale()
 
-			self.position = (x, y)
+	# rescale all elements
+	def Rescale(self):
+		self.rect = pg.Rect(self.originalRect[0] * SF, self.originalRect[1] * SF, self.originalRect[2] * SF, self.originalRect[3] * SF)
+		self.extraTextSurfaces = [] 
+		for textData in self.extraText:
+			textSurface = Font.render(str(textData[0]), True, self.textColor)
+			self.extraTextSurfaces.append((textSurface, ((textData[1][0] * SF) - textSurface.get_width() // 2, (textData[1][1] * SF) - textSurface.get_height() // 2)))
 
-
-class Ray:
-	def __init__(self, startPos, color, point, direction):
-		self.startPos = startPos
-		self.endPos = startPos
-		self.color = color
-		self.direction = direction
-		self.draw = False
-		self.drawColor = color
-
-	def Update(self, position, point):
-		self.Cast(position)
-		self.Collide(point)
-		self.Draw()
-
-	def Cast(self, startPos):
-		self.startPos = startPos
-		self.endPos = (self.startPos[0] + self.direction[0], self.startPos[1] + self.direction[1])
-
-	def Collide(self, point):
-		self.draw = False
-		for bound in allBounds:
-			x1, y1 = self.startPos
-			x2, y2 = self.endPos
-			x3, y3 = bound.position[0]
-			x4, y4 = bound.position[1]
-
-			den = ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4))
-
-			if den != 0:
-				t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den
-
-				if 0 <= t <= 1:
-					L1 = ((x1 + t * (x2 - x1)), (y1 + t * (y2 - y1)))
-					if (L1 > (x3, y3)):
-						if (L1 < (x4, y4)):
-							self.endPos = L1
-							self.draw = True
-							self.drawColor = bound.color
+		if self.hasImage:
+			ScaleImage(self.imageData[0], (self.rect.w, self.rect.h), self.imageData[1])
+			self.image = pg.image.load(self.imageData[1])
+			self.image.convert()
 
 	def Draw(self):
-		# pg.draw.aaline(screen, self.color, self.startPos, self.endPos)
+		if not self.hasImage:
+			pg.draw.rect(self.surface, self.currentColor, self.rect)
+			self.surface.blit(self.textSurface, self.rect)
+		else:
+			self.surface.blit(self.image, self.rect)
 
-		if self.draw:
-			pg.draw.circle(screen, self.drawColor, self.endPos, 1)
+		for textSurfaceData in self.extraTextSurfaces:
+			self.surface.blit(textSurfaceData[0], textSurfaceData[1])
+
+	def HandleEvent(self, event):
+		# check for left mouse button down
+		if event.type == pg.MOUSEBUTTONUP:
+			if event.button == 1: # left mouse button
+				if self.rect.collidepoint(pg.mouse.get_pos()):
+					self.active = not self.active
+
+		# change color
+		if self.active:
+			self.currentColor = self.activeColor
+		else:
+			self.currentColor = self.inactiveColor
+
+	def ChangeRect(self, newRect):
+		self.rect = pg.Rect(newRect)
+		self.extraTextSurfaces = [] 
+		for textData in self.extraText:
+			textSurface = Font.render(str(textData[0]), True, self.textColor)
+			self.extraTextSurfaces.append((textSurface, ((self.rect.x + self.rect.w // 2) - textSurface.get_width() // 2, (self.rect.y + self.rect.h // 2) - textSurface.get_height() // 2)))
 
 
 class HoldButton:
@@ -366,56 +366,70 @@ class Label:
 		self.rect.h = height
 
 
-def MovePoint(event, point):
-	if event.type == pg.KEYDOWN:
-		if event.key == pg.K_a:
-			point.direction[0] = -1
-		if event.key == pg.K_d:
-			point.direction[0] = 1
+def MakeNewBoundary(event):
+	global firstPoint, lastPoint, makingBoundary, allBounds
+	bounds = [] 
+	for bound in allBounds:
+		bounds.append(bound)
 
-		if event.key == pg.K_w:
-			point.direction[1] = -1
-		if event.key == pg.K_s:
-			point.direction[1] = 1
+	if event.type == pg.MOUSEBUTTONDOWN:
+		if event.button == 1:
+			firstPoint = pg.mouse.get_pos()
 
-	if event.type == pg.KEYUP:
-		if event.key == pg.K_a:
-			if point.direction[0] == -1: 
-				point.direction[0] = 0
-		if event.key == pg.K_d:
-			if point.direction[0] == 1: 
-				point.direction[0] = 0
+	if event.type == pg.MOUSEBUTTONUP:
+		if event.button == 1:
+			lastPoint = pg.mouse.get_pos()
 
-		if event.key == pg.K_w:
-			if point.direction[1] == -1: 
-				point.direction[1] = 0
-		if event.key == pg.K_s:
-			if point.direction[1] == 1: 
-				point.direction[1] = 0
+			if firstPoint[0] != -1 and firstPoint != lastPoint:
+				bounds.append(Boundary(((firstPoint[0] // SF, firstPoint[1] // SF), (lastPoint[0] // SF, lastPoint[1] // SF)), white))
+				firstPoint, lastPoint = (-1, -1), (-1, -1)
+				allBounds = np.array(bounds)
 
 
-def MakeBoundaries():
-	global allBounds
-	bounds = []
-	numOfBoundries = 20
+def Save(saveData):
+	global savesDirectoryCreated
+	# check if folder called Maps exists
+	filesInDirectory = [file for file in listdir(rootDirectory)]
+	saveFolderExists = False
 
-	for i in range(numOfBoundries):
-		x1 = random.randint(0, width // SF)
-		y1 = random.randint(0, width // SF)
-		x2 = random.randint(0, height // SF)
-		y2 = random.randint(0, height // SF) 
-		col = random.randint(0, len(color) - 1)
-		bounds.append(Boundary(((x1, y1), (x2, y2)), color[col]))
+	for file in filesInDirectory:
+		if saveFolderName in file:
+			saveFolderExists = True
 
-	allBounds = np.array(bounds)
+	# make folder if Maps doesn't exist
+	if not saveFolderExists: 
+		os.mkdir(saveFolderName)
+
+	# change current working directory to Maps
+	if not savesDirectoryCreated:
+		os.chdir(saveFolderName)
+		savesDirectoryCreated = True
+
+	currentWorkingDirectory = os.getcwd()
+	directory = [file for file in listdir(currentWorkingDirectory)]
+
+	# create save
+	fileName = namePrefix + saveName.text + ".json"
+	with open(fileName, "w+") as saveFile:
+		json.dump(saveData, fp=saveFile, indent=2)
+		saveFile.close()
+
+	print(saveName.text)
+
+	os.chdir(rootDirectory)
 
 
-def CreateLoadingScreen():
-	global loadLabel, loadName, loadSave, newSave
-	loadLabel = Label((((width // SF) // 2) - 150, ((height // SF) // 2) - 70, 100, 20), "Choose map to load", fontSize=32, lists=[loadObjs])
-	loadName = InputBox((((width // SF) // 2) - 100, ((height // SF) // 2) - 10, 200, 20), "Load name: ", characterLimit=30, lists=[loadObjs, allInputBoxs])
-	loadSave = HoldButton(screen, (((width // SF) // 2) - 75, ((height // SF) // 2) + 20, 150, 40), "load save", (lightGray, lightGray), ("Load Save", black), lists=[loadObjs, allButtons])
-	newSave = HoldButton(screen, (((width // SF) // 2) - 75, ((height // SF) // 2) + 70, 150, 40), "new save", (lightGray, lightGray), ("New Save", black), lists=[loadObjs, allButtons])
+def GetSaveData():
+	saveData = {
+		"positions": [],
+		"colors": []
+	}
+
+	for bound in allBounds:
+		saveData["positions"].append(((bound.position[0][0] // SF, bound.position[0][1] // SF), (bound.position[1][0] // SF, bound.position[1][1] // SF)))
+		saveData["colors"].append(bound.color)
+
+	Save(saveData)
 
 
 def Load(loadName):
@@ -436,27 +450,25 @@ def Load(loadName):
 
 def CheckLoad(loadName):
 	loadCheck = False
-	try:
-		if loadName != "":
-			filesInDirectory = [file for file in listdir(rootDirectory)]
-			saveFolderExists = False
+	if loadName != "":
+		filesInDirectory = [file for file in listdir(rootDirectory)]
+		saveFolderExists = False
 
-			for file in filesInDirectory:
-				if saveFolderName in file:
-					saveFolderExists = True
+		for file in filesInDirectory:
+			if saveFolderName in file:
+				saveFolderExists = True
 
+		if not savesDirectoryCreated:
 			os.chdir(saveFolderName)
 
-			currentWorkingDirectory = os.getcwd()
-			directory = [file for file in listdir(currentWorkingDirectory)]
+		currentWorkingDirectory = os.getcwd()
+		directory = [file for file in listdir(currentWorkingDirectory)]
 
-			for file in directory:
-				if loadName in file:
-					loadCheck = True
+		for file in directory:
+			if loadName in file:
+				loadCheck = True
 
-			os.chdir(rootDirectory)
-	except:
-		pass
+		os.chdir(rootDirectory)
 
 	return loadCheck
 
@@ -477,7 +489,6 @@ def ButtonPress(event):
 					if obj in allButtons:
 						allButtons.remove(obj)
 				loadObjs = []
-				MakeBoundaries()
 
 			if button.action == "load save":
 				loadCheck = CheckLoad(loadingName)
@@ -492,36 +503,100 @@ def ButtonPress(event):
 					loadObjs = []
 					Load(loadingName)
 
-point = Point(((width // SF) // 2, (height // SF) // 2), white, rayLength=2, numOfRays=30, mouseMovement=True)
+			if button.action == "save game":
+				allButtons.remove(button)
+				saveScreen = False
+				GetSaveData()
+				for obj in saveObjs:
+					if obj in allInputBoxs:
+						allInputBoxs.remove(obj)
+					if obj in allButtons:
+						allButtons.remove(obj)
+				saveObjs = []
+
+			if button.action == "cancel":
+				allButtons.remove(button)
+				saveScreen = False
+				for obj in saveObjs:
+					if obj in allInputBoxs:
+						allInputBoxs.remove(obj)
+					if obj in allButtons:
+						allButtons.remove(obj)
+				saveObjs = []
+
+
+def CreateLoadingScreen():
+	global loadLabel, loadName, loadSave, newSave
+	loadLabel = Label((((width // SF) // 2) - 150, ((height // SF) // 2) - 70, 100, 20), "Choose map to load", fontSize=32, lists=[loadObjs])
+	loadName = InputBox((((width // SF) // 2) - 100, ((height // SF) // 2) - 10, 200, 20), "Load name: ", characterLimit=30, lists=[loadObjs, allInputBoxs])
+	loadSave = HoldButton(screen, (((width // SF) // 2) - 75, ((height // SF) // 2) + 20, 150, 40), "load save", (lightGray, lightGray), ("Load Save", black), lists=[loadObjs, allButtons])
+	newSave = HoldButton(screen, (((width // SF) // 2) - 75, ((height // SF) // 2) + 70, 150, 40), "new save", (lightGray, lightGray), ("New Save", black), lists=[loadObjs, allButtons])
+
+
+def CreateSaveScreen():
+	global saveLabel, saveName, saveGame, cancel
+	saveLabel = Label((((width // SF) // 2) - 150, ((height // SF) // 2) - 70, 100, 20), "Choose a save name.", fontSize=32, lists=[saveObjs])
+	saveName = InputBox((((width // SF) // 2) - 100, ((height // SF) // 2) - 10, 200, 20), "Save name: ", characterLimit=30, lists=[saveObjs, allInputBoxs])
+	saveGame = HoldButton(screen, (((width // SF) // 2) - 75, ((height // SF) // 2) + 20, 150, 40), "save game", (lightGray, lightGray), ("Save map", black), lists=[saveObjs, allButtons])
+	cancel = HoldButton(screen, (((width // SF) // 2) - 75, ((height // SF) // 2) + 70, 150, 40), "cancel", (lightGray, lightGray), ("Cancel", black), lists=[saveObjs, allButtons])
+
+
+def Destroy(event):
+	global destroyPointStart, destroyPointEnd
+	if event.type == pg.MOUSEBUTTONDOWN:
+		if event.button == 1:
+			destroyPointStart = pg.mouse.get_pos()
+
+	if event.type == pg.MOUSEBUTTONUP:
+		if event.button == 1:
+			destroyPointEnd = pg.mouse.get_pos()
+
+			if destroyPointStart[0] != -1 and destroyPointStart != destroyPointEnd:
+				destroy = pg.Rect(destroyPointStart[0], destroyPointStart[1], destroyPointStart[0] + destroyPointEnd[1], destroyPointStart[1] + destroyPointEnd[1])
+				destroyPointStart, destroyPointEnd = (-1, -1), (-1, -1)
+
 
 CreateLoadingScreen()
-running = True
-drawBounds = False
 while running:
 	clock.tick(FPS)
 	screen.fill(gray)
 
 	for event in pg.event.get():
 		if event.type == pg.QUIT:
-			running = False	
+			if not saveScreen:
+				saveScreen = True
+				if not loadScreen:
+					CreateSaveScreen()
+			else:
+				running = False
 		if event.type == pg.KEYDOWN:
 			if event.key == pg.K_ESCAPE:
-				running = False
+				if not saveScreen:
+					saveScreen = True
+					if not loadScreen:
+						CreateSaveScreen()
+				else:
+					running = False
 
-			if not loadScreen:
-				if event.key == pg.K_SPACE:
-					drawBounds = not drawBounds
+			if event.key == pg.K_d:
+				if not saveScreen and not loadScreen:
+					destroyMode = not destroyMode
+
+		if destroyMode:
+			Destroy(event)
 
 		ButtonPress(event)
-	
+
 		for inputBox in allInputBoxs:
 			inputBox.HandleEvent(event)
-		
-		if not loadScreen:
-			pg.mouse.set_visible(False)
-			MovePoint(event, point)
 
-	if drawBounds:
+		if not loadScreen and not saveScreen and not destroyMode:
+			MakeNewBoundary(event)
+
+	for obj in allBuildMenuObj:
+		obj.Draw()
+
+	if not saveScreen:
 		for bound in allBounds:
 			bound.Draw()
 
@@ -537,8 +612,33 @@ while running:
 	for obj in loadObjs:
 		obj.Draw() 
 
-	if not loadScreen:
-		point.Move()
-		point.Draw()
+	for obj in saveObjs:
+		obj.Draw()
+
+	if destroyPointStart[0] != -1 and destroyPointStart != lastPoint and destroyMode:
+		x1, y1, x2, y2 = destroyPointStart[0], destroyPointStart[1], pg.mouse.get_pos()[0], pg.mouse.get_pos()[1]
+
+
+		if x1 > x2:
+			x2, x1 = destroyPointStart[0], pg.mouse.get_pos()[0]
+
+		if y1 > y2:
+			y2, y1 = destroyPointStart[1], pg.mouse.get_pos()[1]
+
+		line1 = (x1, y1)
+		line2 = (x1, y2)
+		line3 = (x2, y2)
+		line4 = (x2, y1)
+
+		pg.draw.aalines(screen, white, True, [line1, line2, line3, line4])
+		for bound in allBounds:
+			for line in bound.position:
+				if line[0] > x1 and line[0] < x2:
+					if line[1] > y1 and line[1] < y2:
+						pg.draw.aaline(screen, red, bound.position[0], bound.position[1])
+						# line line intersection + point rect intersection
+
+	if firstPoint[0] != -1 and firstPoint != lastPoint and not destroyMode:
+		pg.draw.aaline(screen, white, firstPoint, pg.mouse.get_pos(), 1)	
 
 	pg.display.flip()
