@@ -50,6 +50,7 @@ running = True
 
 destroyMode = False
 destroyPointStart, destroyPointEnd = (-1, -1), (-1, -1)
+destroyedBounds = []
 
 allowedKeys = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", " "]
 
@@ -88,8 +89,24 @@ class Boundary:
 		else:
 			self.position = ((x1, y1), (x2, y2))
 
+	def __del__(self):
+		print("bound destroyed")
+
 	def Draw(self):
 		pg.draw.aaline(screen, self.color, self.position[0], self.position[1], 1)
+
+	def Destroy(self):
+		global allBounds
+		if self in allBounds:
+			bounds = []
+			for bound in allBounds:
+				bounds.append(bound)
+			bounds.remove(self)
+			allBounds = np.array(bounds)
+
+		if self in destroyedBounds:
+			destroyedBounds.remove(self)
+		del self
 
 
 class ToggleButton:
@@ -337,33 +354,124 @@ class InputBox:
 
 
 class Label:
-	def __init__(self, rect, text="", fontName="arial", fontSize=8, color=lightGray, lists=[allLabels]):
+	def __init__(self, rect, colors, textData, drawData=[False, False, True], lists=[allLabels], extraText=[], extraData=[], resize=False):
+		"""
+		Parameters:
+			gameStateType: Which gameState to be drawn in
+			colors: tuple of border color, background color
+			textData: tuple of text, text color, font size, how to align text
+			drawData: tuple of rounded edges, addititve, filled
+			extraText: any additional text
+			extraData: any additional data
+		"""
 		self.surface = screen
-		self.rect = pg.Rect(rect[0] * SF, rect[1] * SF, rect[2] * SF, rect[3] * SF)
-		self.text = text
-		self.color = color
-		self.font = pg.font.SysFont(fontName, fontSize * SF)
-		self.textSurface = self.font.render(self.text, True, self.color)
-		width = max(25 * SF, self.textSurface.get_width()+5*SF)
-		height = max(13.5 * SF, self.textSurface.get_height()+5*SF)
-		self.rect.w = width
-		self.rect.h = height
+		self.originalRect = rect
+		self.borderColor = colors[0]
+		self.backgroundColor = colors[1]
+		self.text = str(textData[0])
+		self.textColor = textData[1]
+		self.fontSize = textData[2]
+		self.alignText = textData[3]
+
+		self.resize = resize
+
+		self.roundedEdges = drawData[0]
+		self.additive = drawData[1]
+		self.filled = drawData[2]
+
+		self.extraText = extraText
+		self.extraData = extraData
+
+		self.Rescale()
 
 		for listToAppend in lists:
 			listToAppend.append(self)
 
-	def Draw(self, width=3):
-		self.surface.blit(self.textSurface, (self.rect.x + 2.5 * SF, self.rect.y + 2.5 * SF))
-		DrawRectOutline(self.surface, self.color, self.rect, width)
+	# rescale all elements
+	def Rescale(self):
+		self.rect = pg.Rect(self.originalRect[0] * SF, self.originalRect[1] * SF, self.originalRect[2] * SF, self.originalRect[3] * SF)
+		self.font = pg.font.SysFont("arial", self.fontSize * SF)
+		self.textSurface = self.font.render(self.text, True, self.textColor)
+		if self.resize:
+			width = max(25 * SF, self.textSurface.get_width()+5*SF)
+			height = max(13.5 * SF, self.textSurface.get_height()+5*SF)
+			self.rect.w = width
+			self.rect.h = height
+		
+		if self.alignText == "center-center":
+			self.textRect = pg.Rect((self.rect[0] + self.rect[2] // 2) - self.textSurface.get_width() // 2, (self.rect[1] + self.rect[3] // 2) - self.textSurface.get_height() // 2, self.rect[2], self.rect[3])
+		elif self.alignText == "top-center":
+			self.textRect = pg.Rect((self.rect[0] + self.rect[2] // 2) - self.textSurface.get_width() // 2, self.rect[1] + 3 * SF, self.rect[2], self.rect[3])
+		elif self.alignText == "top-left":
+			self.textRect = (self.rect.x + 5 * SF, self.rect.y + 5 * SF)
+		else:
+			self.textRect = (self.rect.x + 5 * SF, self.rect.y + 5 * SF)
 
-	def UpdateText(self, newText):
-		self.text = newText
-		self.textSurface = self.font.render(self.text, True, self.color)
-		# change with and height for text
-		width = max(25 * SF, self.textSurface.get_width()+5*SF)
-		height = max(13.5 * SF, self.textSurface.get_height()+5*SF)
-		self.rect.w = width
-		self.rect.h = height
+		self.extraTextSurfaces = []
+		for textData in self.extraText:
+			textSurface = FONT.render(str(textData[0]), True, self.textColor)
+			x, y = textData[1][0] * SF, textData[1][1] * SF
+			alignText = textData[2]
+			textSurface = FONT.render(str(textData[0]), True, self.textColor)
+			if alignText == "center-center":
+				textRect = (x + self.rect.w // SF // 2) - self.textSurface.get_width() // 2, (y + self.rect.h // 2) - self.textSurface.get_height() // 2, self.rect.w, self.rect.h
+			elif alignText == "top-center":
+				textRect = (x + self.rect.w // SF // 2) - self.textSurface.get_width() // 2, y
+			elif alignText == "top-left":
+				textRect = x, y
+
+
+			self.extraTextSurfaces.append((textSurface, textRect))
+
+	def Draw(self):
+		if self.roundedEdges:
+			DrawObround(self.surface, self.backgroundColor, self.rect, self.filled, self.additive)
+			DrawObround(self.surface, colDarkGray, (self.rect.x + 3, self.rect.y + 3, self.rect.w - 6, self.rect.h - 6), self.filled, self.additive)
+		else:
+			pg.draw.rect(self.surface, self.backgroundColor, self.rect)
+			if self.borderColor != False:
+				DrawRectOutline(self.surface, self.borderColor, self.rect, 1.5 * SF)
+		self.surface.blit(self.textSurface, self.textRect)
+
+		for textSurface in self.extraTextSurfaces:
+			self.surface.blit(textSurface[0], textSurface[1])
+
+	def UpdateText(self, text):
+		if self.resize:
+			width = max(25 * SF, self.textSurface.get_width()+5*SF)
+			height = max(13.5 * SF, self.textSurface.get_height()+5*SF)
+			self.rect.w = width
+			self.rect.h = height
+
+		self.textSurface = self.font.render(text, True, self.textColor)
+		if self.alignText == "center-center":
+			self.textRect = pg.Rect((self.rect[0] + self.rect[2] // 2) - self.textSurface.get_width() // 2, (self.rect[1] + self.rect[3] // 2) - self.textSurface.get_height() // 2, self.rect[2], self.rect[3])
+		elif self.alignText == "top-center":
+			self.textRect = pg.Rect((self.rect[0] + self.rect[2] // 2) - self.textSurface.get_width() // 2, self.rect[1] + 3 * SF, self.rect[2], self.rect[3])
+		elif self.alignText == "top-left":
+			self.textRect = (self.rect.x + 5 * SF, self.rect.y + 5 * SF)
+		else:
+			self.textRect = (self.rect.x + 5 * SF, self.rect.y + 5 * SF)
+
+	def UpdateExtraText(self, text):
+		self.extraText = text
+		self.extraTextSurfaces = []
+		for textData in self.extraText:
+			textSurface = FONT.render(str(textData[0]), True, self.textColor)
+			x, y = textData[1][0] * SF, textData[1][1] * SF
+			alignText = textData[2]
+			textSurface = FONT.render(str(textData[0]), True, self.textColor)
+			if alignText == "center-center":
+				textRect = (self.rect.x + self.rect.w // 2) - textSurface.get_width() // 2, (y + self.rect.h // 2) - self.textSurface.get_height() // 2, self.rect.w, self.rect.h
+			elif alignText == "top-center":
+				textRect = (self.rect.x + self.rect.w // 2) - textSurface.get_width() // 2, y
+			elif alignText == "top-left":
+				textRect = (x + 5 * SF, y + 5 * SF)
+			else:
+				textRect = (x + 5 * SF, y + 5 * SF)
+
+
+			self.extraTextSurfaces.append((textSurface, textRect))
 
 
 def MakeNewBoundary(event):
@@ -527,22 +635,76 @@ def ButtonPress(event):
 
 def CreateLoadingScreen():
 	global loadLabel, loadName, loadSave, newSave
-	loadLabel = Label((((width // SF) // 2) - 150, ((height // SF) // 2) - 70, 100, 20), "Choose map to load", fontSize=32, lists=[loadObjs])
+	loadLabel = Label((((width // SF) // 2) - 150, ((height // SF) // 2) - 70, 100, 20), (lightGray, gray), ("Choose map to load", lightGray, 32, "center-center"), lists=[loadObjs], resize=True)
 	loadName = InputBox((((width // SF) // 2) - 100, ((height // SF) // 2) - 10, 200, 20), "Load name: ", characterLimit=30, lists=[loadObjs, allInputBoxs])
 	loadSave = HoldButton(screen, (((width // SF) // 2) - 75, ((height // SF) // 2) + 20, 150, 40), "load save", (lightGray, lightGray), ("Load Save", black), lists=[loadObjs, allButtons])
 	newSave = HoldButton(screen, (((width // SF) // 2) - 75, ((height // SF) // 2) + 70, 150, 40), "new save", (lightGray, lightGray), ("New Save", black), lists=[loadObjs, allButtons])
 
+	allLoadNamesTitle = Label((((width // SF) // 2) + 185, ((height // SF) // 2) - 170, 100, 20), (lightGray, gray), ("Load names", lightGray, 16, "top-center"), lists=[loadObjs])
+	allLoadNamesCont = Label((((width // SF) // 2) + 150, ((height // SF) // 2) - 140, 165, 310), (lightGray, gray), ("", lightGray, 8, "center-center"), lists=[loadObjs])
+	# add slider
+	names = GetLoadingNames()
+	if len(names) != 0:
+		for i, name in enumerate(names):
+			loadingName = Label((((width // SF) // 2) + 155, ((height // SF) // 2) - 135 + (i * 22), 145, 20), (lightGray, gray), (name, lightGray, 8, "top-left"), lists=[loadObjs])
+	else:
+		allLoadNamesCont.UpdateText("No saved data found.")
+
+
+def GetLoadingNames():
+	names = []
+
+	try:
+		# check if folder called Maps exists
+		filesInDirectory = [file for file in listdir(rootDirectory)]
+		saveFolderExists = False
+
+		for file in filesInDirectory:
+			if saveFolderName in file:
+				saveFolderExists = True
+
+		# make folder if Maps doesn't exist
+		if not saveFolderExists: 
+			os.mkdir(saveFolderName)
+
+		# change current working directory to Maps
+		os.chdir(saveFolderName)
+
+		currentWorkingDirectory = os.getcwd()
+		directory = [file for file in listdir(currentWorkingDirectory)]
+
+		for file in directory:
+			name = file[len(namePrefix):-5]
+			if name != "":
+				names.append(name)
+
+		os.chdir(rootDirectory)
+	except:
+		pass
+
+	return names
+
 
 def CreateSaveScreen():
 	global saveLabel, saveName, saveGame, cancel
-	saveLabel = Label((((width // SF) // 2) - 150, ((height // SF) // 2) - 70, 100, 20), "Choose a save name.", fontSize=32, lists=[saveObjs])
+	saveLabel = Label((((width // SF) // 2) - 150, ((height // SF) // 2) - 70, 100, 20), (lightGray, gray), ("Choose a save name.", lightGray, 26, "center-center"), lists=[saveObjs], resize=True)
 	saveName = InputBox((((width // SF) // 2) - 100, ((height // SF) // 2) - 10, 200, 20), "Save name: ", characterLimit=30, lists=[saveObjs, allInputBoxs])
 	saveGame = HoldButton(screen, (((width // SF) // 2) - 75, ((height // SF) // 2) + 20, 150, 40), "save game", (lightGray, lightGray), ("Save map", black), lists=[saveObjs, allButtons])
 	cancel = HoldButton(screen, (((width // SF) // 2) - 75, ((height // SF) // 2) + 70, 150, 40), "cancel", (lightGray, lightGray), ("Cancel", black), lists=[saveObjs, allButtons])
 
+	allSaveNamesTitle = Label((((width // SF) // 2) + 185, ((height // SF) // 2) - 170, 100, 20), (lightGray, gray), ("Load names", lightGray, 16, "top-center"), lists=[loadObjs])
+	allSaveNamesCont = Label((((width // SF) // 2) + 150, ((height // SF) // 2) - 140, 165, 310), (lightGray, gray), ("", lightGray, 8, "center-center"), lists=[loadObjs])
+	# add slider
+	names = GetLoadingNames()
+	if len(names) != 0:
+		for i, name in enumerate(names):
+			loadingName = Label((((width // SF) // 2) + 155, ((height // SF) // 2) - 135 + (i * 22), 145, 20), (lightGray, gray), (name, lightGray, 8, "top-left"), lists=[loadObjs])
+	else:
+		allSaveNamesCont.UpdateText("No saved data found.")
+
 
 def Destroy(event):
-	global destroyPointStart, destroyPointEnd
+	global destroyPointStart, destroyPointEnd, destroyedBounds
 	if event.type == pg.MOUSEBUTTONDOWN:
 		if event.button == 1:
 			destroyPointStart = pg.mouse.get_pos()
@@ -555,90 +717,126 @@ def Destroy(event):
 				destroy = pg.Rect(destroyPointStart[0], destroyPointStart[1], destroyPointStart[0] + destroyPointEnd[1], destroyPointStart[1] + destroyPointEnd[1])
 				destroyPointStart, destroyPointEnd = (-1, -1), (-1, -1)
 
+			for bound in destroyedBounds:
+				bound.Destroy()
+			destroyedBounds = []
 
-CreateLoadingScreen()
-while running:
-	clock.tick(FPS)
-	screen.fill(gray)
 
-	for event in pg.event.get():
-		if event.type == pg.QUIT:
-			if not saveScreen:
-				saveScreen = True
-				if not loadScreen:
-					CreateSaveScreen()
+def DrawDestroy():
+	global destroyedBounds
+	x1, y1, x2, y2 = destroyPointStart[0], destroyPointStart[1], pg.mouse.get_pos()[0], pg.mouse.get_pos()[1]
+
+	if x1 > x2:
+		x2, x1 = destroyPointStart[0], pg.mouse.get_pos()[0]
+
+	if y1 > y2:
+		y2, y1 = destroyPointStart[1], pg.mouse.get_pos()[1]
+
+	line1 = (x1, y1)
+	line2 = (x1, y2)
+	line3 = (x2, y2)
+	line4 = (x2, y1)
+
+	# line line intersection + point rect intersection
+	pg.draw.aalines(screen, white, True, [line1, line2, line3, line4])
+	for bound in allBounds:
+		for line in bound.position:
+			if line[0] > x1 and line[0] < x2:
+				if line[1] > y1 and line[1] < y2:
+					pg.draw.aaline(screen, red, bound.position[0], bound.position[1])
+					destroyedBounds.append(bound)
+				else:
+					if bound in destroyedBounds:
+						destroyedBounds.remove(bound)
 			else:
-				running = False
-		if event.type == pg.KEYDOWN:
-			if event.key == pg.K_ESCAPE:
-				if not saveScreen:
+				if bound in destroyedBounds:
+					destroyedBounds.remove(bound)
+					
+		x1, y1, x2, y2, x3, y3, x4, y4 = line1[0], line1[1], line3[0], line3[1], bound.position[0][0], bound.position[0][1], bound.position[1][0], bound.position[1][1]
+		den = ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4))
+		if den != 0:
+			t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den
+			if 0 <= t <= 1:
+				L1 = ((x1 + t * (x2 - x1)), (y1 + t * (y2 - y1)))
+				if (L1 > (x3, y3)):
+					if (L1 < (x4, y4)):
+						pg.draw.aaline(screen, red, bound.position[0], bound.position[1])
+						destroyedBounds.append(bound)
+					else:
+						if bound in destroyedBounds:
+							destroyedBounds.remove(bound)
+				else:
+					if bound in destroyedBounds:
+						destroyedBounds.remove(bound)
+			else:
+				if bound in destroyedBounds:
+					destroyedBounds.remove(bound)
+
+if __name__ == "__main__":
+	CreateLoadingScreen()
+	while running:
+		clock.tick(FPS)
+		screen.fill(gray)
+
+		for event in pg.event.get():
+			if event.type == pg.QUIT:
+				if not saveScreen and not loadScreen:
 					saveScreen = True
 					if not loadScreen:
 						CreateSaveScreen()
 				else:
 					running = False
+			if event.type == pg.KEYDOWN:
+				if event.key == pg.K_ESCAPE:
+					if not saveScreen and not loadScreen:
+						saveScreen = True
+						if not loadScreen:
+							CreateSaveScreen()
+					else:
+						running = False
 
-			if event.key == pg.K_d:
-				if not saveScreen and not loadScreen:
-					destroyMode = not destroyMode
+				if event.key == pg.K_d:
+					if not saveScreen and not loadScreen:
+						destroyMode = not destroyMode
 
-		if destroyMode:
-			Destroy(event)
+			if destroyMode:
+				Destroy(event)
 
-		ButtonPress(event)
+			ButtonPress(event)
+
+			for inputBox in allInputBoxs:
+				inputBox.HandleEvent(event)
+
+			if not loadScreen and not saveScreen and not destroyMode:
+				MakeNewBoundary(event)
+
+		for obj in allBuildMenuObj:
+			obj.Draw()
+
+		if not saveScreen:
+			for bound in allBounds:
+				bound.Draw()
+
+		for button in allButtons:
+			button.Draw()
 
 		for inputBox in allInputBoxs:
-			inputBox.HandleEvent(event)
+			inputBox.Draw()
 
-		if not loadScreen and not saveScreen and not destroyMode:
-			MakeNewBoundary(event)
+		for label in allLabels:
+			label.Draw()
 
-	for obj in allBuildMenuObj:
-		obj.Draw()
+		for obj in loadObjs:
+			obj.Draw() 
 
-	if not saveScreen:
-		for bound in allBounds:
-			bound.Draw()
+		for obj in saveObjs:
+			obj.Draw()
 
-	for button in allButtons:
-		button.Draw()
-
-	for inputBox in allInputBoxs:
-		inputBox.Draw()
-
-	for label in allLabels:
-		label.Draw()
-
-	for obj in loadObjs:
-		obj.Draw() 
-
-	for obj in saveObjs:
-		obj.Draw()
-
-	if destroyPointStart[0] != -1 and destroyPointStart != lastPoint and destroyMode:
-		x1, y1, x2, y2 = destroyPointStart[0], destroyPointStart[1], pg.mouse.get_pos()[0], pg.mouse.get_pos()[1]
+		if destroyPointStart[0] != -1 and destroyPointStart != lastPoint and destroyMode:
+			DrawDestroy()
 
 
-		if x1 > x2:
-			x2, x1 = destroyPointStart[0], pg.mouse.get_pos()[0]
+		if firstPoint[0] != -1 and firstPoint != lastPoint and not destroyMode:
+			pg.draw.aaline(screen, white, firstPoint, pg.mouse.get_pos(), 1)	
 
-		if y1 > y2:
-			y2, y1 = destroyPointStart[1], pg.mouse.get_pos()[1]
-
-		line1 = (x1, y1)
-		line2 = (x1, y2)
-		line3 = (x2, y2)
-		line4 = (x2, y1)
-
-		pg.draw.aalines(screen, white, True, [line1, line2, line3, line4])
-		for bound in allBounds:
-			for line in bound.position:
-				if line[0] > x1 and line[0] < x2:
-					if line[1] > y1 and line[1] < y2:
-						pg.draw.aaline(screen, red, bound.position[0], bound.position[1])
-						# line line intersection + point rect intersection
-
-	if firstPoint[0] != -1 and firstPoint != lastPoint and not destroyMode:
-		pg.draw.aaline(screen, white, firstPoint, pg.mouse.get_pos(), 1)	
-
-	pg.display.flip()
+		pg.display.flip()
